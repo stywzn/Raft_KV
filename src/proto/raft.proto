@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package raftpb; // 加上包名，防止命名冲突
+
+// 1. 日志条目 (Log Entry)
+// 核心数据结构，存储具体的 KV 操作
+message LogEntry {
+    uint64 term  = 1; // 产生该日志时的任期
+    uint64 index = 2; // 日志在 Log 数组中的索引
+    
+    enum EntryType {
+        ENTRY_NORMAL = 0; // 普通 KV 操作
+        ENTRY_CONF_CHANGE = 1; // 成员变更 (进阶功能预留)
+    }
+    EntryType type = 3; 
+
+    bytes data = 4; // 具体的命令 (例如 "Put x 1" 序列化后的二进制)，使用 bytes 实现通用性
+}
+
+// 2. RequestVote RPC (拉票)
+message RequestVoteRequest {
+    uint64 term         = 1; // 候选人的任期
+    uint32 candidate_id = 2; // 候选人 ID (推荐用 int32/uint32 IP转Int 或 索引)
+    uint64 last_log_index = 3; // 候选人最新日志的索引 (用于安全性检查)
+    uint64 last_log_term  = 4; // 候选人最新日志的任期
+}
+
+message RequestVoteResponse {
+    uint64 term        = 1; // 当前任期，用于候选人更新自己的任期
+    bool   vote_granted = 2; // 是否投票给该候选人
+}
+
+// 3. AppendEntries RPC (心跳 + 日志复制)
+message AppendEntriesRequest {
+    uint64 term         = 1; // Leader 的任期
+    uint32 leader_id    = 2; // Leader ID，以便 Follower 重定向客户端
+    
+    uint64 prev_log_index = 3; // 紧邻新日志条目之前的那个日志条目的索引
+    uint64 prev_log_term  = 4; // prev_log_index 处的任期
+    
+    repeated LogEntry entries = 5; // 准备存储的日志条目 (为空时即为心跳)
+    
+    uint64 leader_commit = 6; // Leader 的 commitIndex
+}
+
+message AppendEntriesResponse {
+    uint64 term    = 1; // 当前任期，用于 Leader 更新自己
+    bool   success = 2; // Follower 是否匹配了 prev_log_index/term
+    
+    // 优化字段 (用于快速恢复日志，冲突时不再一个一个回退，而是跨步回退)
+    uint64 conflict_index = 3; 
+    uint64 conflict_term  = 4;
+}
+
+// 定义 gRPC 服务接口
+service RaftService {
+    // 选举请求
+    rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse);
+    
+    // 日志复制与心跳
+    rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
+    
+    // 预留：安装快照 (InstallSnapshot) - 后期再加
+    // rpc InstallSnapshot(InstallSnapshotRequest) returns (InstallSnapshotResponse);
+}

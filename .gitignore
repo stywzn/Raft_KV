@@ -1,0 +1,17 @@
+# 1. 忽略构建目录 (里面有 gRPC 的源码和编译出的 .o 文件，几百MB，绝对不能传)
+build/
+cmake-build-debug/
+
+# 2. 忽略 IDE 配置文件 (这是你个人的配置，别人的 VS Code 配置可能和你不一样)
+.vscode/
+.idea/
+*.swp
+
+# 3. 忽略生成的二进制文件 (以防万一)
+*.a
+*.so
+*.dylib
+raft-kv
+
+# 4. 忽略系统文件
+.DS_Store
