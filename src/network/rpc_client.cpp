@@ -14,7 +14,7 @@ RaftRpcClient::RaftRpcClient(const std::string& address) {
 bool RaftRpcClient::RequestVote(const raftpb::RequestVoteRequest& args, 
                                 raftpb::RequestVoteResponse* reply) {
     grpc::ClientContext context;
-    auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(200);
+    auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(3000);
     context.set_deadline(deadline);
 
     grpc::Status status = stub_->RequestVote(&context, args, reply);
@@ -30,7 +30,7 @@ bool RaftRpcClient::RequestVote(const raftpb::RequestVoteRequest& args,
 bool RaftRpcClient::AppendEntries(const raftpb::AppendEntriesRequest& args, 
                                   raftpb::AppendEntriesResponse* reply) {
     grpc::ClientContext context;
-    auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(200);
+    auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(3000);
     context.set_deadline(deadline);
 
     grpc::Status status = stub_->AppendEntries(&context, args, reply);
