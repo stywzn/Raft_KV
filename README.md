@@ -1,50 +1,45 @@
-# Raft-KV: Distributed Key-Value Storage with Crash Safety
+# Tiny-Milvus: Distributed Vector Database based on Raft
 
-![Build Status](https://img.shields.io/badge/build-passing-brightgreen) ![C++](https://img.shields.io/badge/C%2B%2B-20-blue) ![gRPC](https://img.shields.io/badge/gRPC-Framework-red) ![License](https://img.shields.io/badge/license-MIT-green)
+![Build Status](https://img.shields.io/badge/build-passing-brightgreen) ![C++](https://img.shields.io/badge/C%2B%2B-20-blue) ![AI-Infra](https://img.shields.io/badge/AI--Infra-VectorDB-orange)
 
-**Raft-KV** is a high-performance, strongly consistent distributed Key-Value storage system built with **Modern C++20** and **gRPC**. 
+**Tiny-Milvus** is a high-performance distributed vector database designed for **AI Infra** and **RAG (Retrieval-Augmented Generation)** scenarios. 
 
-It implements the core **Raft Consensus Algorithm**, featuring automatic leader election, log replication, and a **WAL-based persistence mechanism** that ensures data durability and crash recovery.
+It combines the strong consistency of **Raft** with the efficient ANN (Approximate Nearest Neighbor) capabilities of **HNSW**, providing a scalable storage backend for massive vector embeddings.
 
 ---
 
-## 🚀 Key Features
+## 🚀 Core Features
 
-### 1. Core Consensus (Raft)
-* **Leader Election**: Implements randomized election timeouts to handle split votes and leader failures efficiently.
-* **Log Replication**: Strong consistency replication with safety checks (`prev_log_term`, `prev_log_index`) and majority quorum commits.
-* **Heartbeat Mechanism**: Maintains authority stability and prevents unnecessary re-elections.
+### 1. Vector Search Engine (AI Native)
+* **HNSW Index**: Integrated `hnswlib` for millisecond-level ANN search.
+* **High Performance**: Replaced traditional KV engines with high-dimensional vector indexing.
+* **Distance Metrics**: Supports L2 (Euclidean) distance for similarity calculation.
 
-### 2. Storage & Reliability (The Hard Parts)
-* **Crash Safety & Persistence**: Implements **Write-Ahead Logging (WAL)**.
-    * Persists `CurrentTerm`, `VotedFor`, and `Logs` to disk in real-time.
-    * **Crash Recovery**: Nodes automatically restore state from disk upon restart, ensuring **Zero Data Loss**.
-* **KV State Machine**: Linearly consistent application of committed logs to the in-memory KV engine (`std::map`).
+### 2. Distributed Consensus (Raft)
+* **Leader Election**: Handles split votes and node failures automatically.
+* **Log Replication**: Ensures all vector insertions are replicated across the cluster before being indexed.
+* **Crash Safety**: WAL-based persistence ensures zero data loss even after power failures.
 
-### 3. Engineering & Concurrency
-* **RPC Framework**: Built on **gRPC/Protobuf** for robust inter-node communication.
-* **Deadlock Prevention**: Designed with `std::recursive_mutex` to handle complex re-entrant locking scenarios between RPC callbacks and the main event loop.
-* **Client Interaction**: Provides a CLI client to interact with the cluster dynamically.
+### 3. Engineering & Architecture
+* **RPC Framework**: Built on **gRPC** for robust node communication.
+* **Concurrency**: Optimized with `recursive_mutex` to prevent deadlocks in high-concurrency RPC callbacks.
+* **Client SDK**: Provides a C++ CLI client for vector insertion and Top-K search.
 
 ---
 
 ## 🛠️ Tech Stack
 
-* **Language**: C++20 (Smart Pointers, Threads, Atomics, File Streams)
-* **RPC**: gRPC, Protocol Buffers
-* **Build System**: CMake (FetchContent integration for dependency management)
-* **Development Environment**: Linux / WSL2
+* **Consensus**: Raft Algorithm (Custom Implementation)
+* **Vector Index**: HNSW (Hierarchical Navigable Small World)
+* **Communication**: gRPC / Protobuf
+* **Language**: C++20
 
 ---
 
-## 📂 Project Structure
+## ⚡ Quick Start
 
-```text
-Raft-KV/
-├── src/
-│   ├── cmd/            # Entry points (Server main, Client CLI)
-│   ├── raft/           # Core Raft logic (Consensus, FSM, Persistence)
-│   ├── network/        # gRPC Service Implementation
-│   └── protos/         # Protobuf definitions
-├── CMakeLists.txt      # Build configuration
-└── node_*.storage      # Persistence files (generated at runtime)
+### 1. Build
+```bash
+mkdir build && cd build
+cmake ..
+make -j$(nproc)

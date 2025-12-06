@@ -11,43 +11,41 @@ class RaftRpcServiceImpl final : public raftpb::RaftService::Service {
 public:
     explicit RaftRpcServiceImpl(RaftNode& node) : node_(node) {}
 
-    // 1. Handle RequestVote RPC
-    grpc::Status RequestVote(grpc::ServerContext* context, 
-                             const raftpb::RequestVoteRequest* request, 
-                             raftpb::RequestVoteResponse* response) override {
-        node_.HandleRequestVote(*request, response);
+    grpc::Status RequestVote(grpc::ServerContext*, const raftpb::RequestVoteRequest* req, raftpb::RequestVoteResponse* resp) override {
+        node_.HandleRequestVote(*req, resp);
         return grpc::Status::OK;
     }
 
-    // 2. Handle AppendEntries RPC (Heartbeat)
-    grpc::Status AppendEntries(grpc::ServerContext* context, 
-                               const raftpb::AppendEntriesRequest* request, 
-                               raftpb::AppendEntriesResponse* response) override {
-        node_.HandleAppendEntries(*request, response);
+    grpc::Status AppendEntries(grpc::ServerContext*, const raftpb::AppendEntriesRequest* req, raftpb::AppendEntriesResponse* resp) override {
+        node_.HandleAppendEntries(*req, resp);
         return grpc::Status::OK;
     }
 
-    // ==================================================
-    // 【新增】3. Handle Client Propose RPC
-    // ==================================================
-    grpc::Status Propose(grpc::ServerContext* context,
-                         const raftpb::ClientRequest* request,
-                         raftpb::ClientResponse* response) override {
+    grpc::Status Propose(grpc::ServerContext*, const raftpb::ClientRequest* req, raftpb::ClientResponse* resp) override {
+        // 序列化整个 ClientRequest (含 VectorData)
+        std::string serialized_req;
+        if (!req->SerializeToString(&serialized_req)) {
+            return grpc::Status(grpc::StatusCode::INTERNAL, "Failed to serialize request");
+        }
         
-        LOG_INFO("RPC Received: Client Propose Data: " << request->data());
-
-        // 调用 RaftNode 的核心逻辑
-        auto result = node_.Propose(request->data());
+        auto result = node_.Propose(serialized_req);
         
-        // result 是 tuple<index, term, is_leader>
-        bool is_leader = std::get<2>(result);
+        if (std::get<2>(result)) resp->set_success(true);
+        else resp->set_success(false);
+        return grpc::Status::OK;
+    }
 
-        if (is_leader) {
-            response->set_success(true);
-        } else {
-            response->set_success(false);
-            // 这里以后可以扩展，返回 Leader 的地址给客户端重定向
-            response->set_leader_hint("Unknown"); 
+    // 【新增】Search 接口
+    grpc::Status Search(grpc::ServerContext*, const raftpb::SearchRequest* req, raftpb::SearchResponse* resp) override {
+        std::vector<float> query;
+        for (float f : req->vector()) query.push_back(f);
+        
+        auto results = node_.Search(query, req->top_k());
+        
+        for (const auto& res : results) {
+            auto* item = resp->add_results();
+            item->set_id(res.first);
+            item->set_score(res.second);
         }
         return grpc::Status::OK;
     }

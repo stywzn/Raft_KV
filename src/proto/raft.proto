@@ -2,17 +2,39 @@ syntax = "proto3";
 
 package raftpb;
 
-// 1. 日志条目 (Log Entry)
-message LogEntry {
-    uint64 term  = 1; // 产生该日志时的任期
-    uint64 index = 2; // 日志在全局历史中的索引
-    bytes data   = 3; // 具体命令 (例如 "SET x 10")
+// ==========================================
+// 1. 核心数据结构 (Vector DB)
+// ==========================================
+
+// 向量数据单元
+message VectorData {
+    int64 id = 1;              // 向量唯一ID
+    repeated float vector = 2; // 向量数据 (例如 128维)
 }
 
-// 2. RequestVote RPC (拉票)
+// 搜索结果项
+message SearchResult {
+    int64 id = 1;    // 搜到的向量 ID
+    float score = 2; // 距离/相似度
+}
+
+// ==========================================
+// 2. Raft 内部共识消息
+// ==========================================
+
+message LogEntry {
+    uint64 term  = 1; 
+    uint64 index = 2; 
+    
+    // 【注意】这里依然是 bytes。
+    // 我们会把 ClientRequest 序列化成二进制存进去。
+    // 这样 Raft 不需要关心具体存的是 KV 还是 Vector，只负责复制。
+    bytes data   = 3; 
+}
+
 message RequestVoteRequest {
     uint64 term           = 1;
-    int32  candidate_id   = 2; // 这里建议用 int32 对应你的 Node ID
+    int32  candidate_id   = 2; 
     uint64 last_log_index = 3;
     uint64 last_log_term  = 4;
 }
@@ -22,53 +44,63 @@ message RequestVoteResponse {
     bool   vote_granted = 2;
 }
 
-// 3. AppendEntries RPC (心跳 + 日志复制)
 message AppendEntriesRequest {
     uint64 term          = 1;
-    int32  leader_id     = 2; // 建议 int32
-    
-    uint64 prev_log_index = 3; // 紧邻新日志之前的索引
-    uint64 prev_log_term  = 4; // 紧邻新日志之前的任期
-    
-    repeated LogEntry entries = 5; // 真正运送的日志！
-    
-    uint64 leader_commit = 6; // Leader 的提交进度
+    int32  leader_id     = 2; 
+    uint64 prev_log_index = 3; 
+    uint64 prev_log_term  = 4; 
+    repeated LogEntry entries = 5; 
+    uint64 leader_commit = 6; 
 }
 
 message AppendEntriesResponse {
     uint64 term    = 1;
     bool   success = 2;
-    
-    // 冲突优化的字段 (以后做快速恢复用，现在先留着)
     uint64 conflict_index = 3; 
     uint64 conflict_term  = 4;
 }
 
 // ==========================================
-// 【新增】4. 客户端交互消息 (Client Interaction)
+// 3. 客户端交互消息 (Client Interaction)
 // ==========================================
 
-// 客户端发来的写请求
+// 写请求 (Insert)
 message ClientRequest {
-    bytes data = 1; // 具体的命令，如 "User=Tom"
+    // 使用 oneof 是为了兼容性，以后可以扩展删除(Delete)操作
+    oneof request_type {
+        VectorData vector_insert = 1; // 插入向量
+    }
 }
 
-// 服务端返回给客户端的结果
 message ClientResponse {
-    bool success = 1;       // true 表示 Leader 成功接收并开始处理
-    string leader_hint = 2; // 如果 success 为 false，告诉客户端谁是 Leader (比如 "127.0.0.1:5003")
+    bool success = 1;       
+    string leader_hint = 2; 
+}
+
+// 读请求 (Search)
+message SearchRequest {
+    repeated float vector = 1; // 查询向量 (Query Vector)
+    int32 top_k = 2;           // 返回最近的 K 个
+}
+
+message SearchResponse {
+    repeated SearchResult results = 1;
 }
 
 // ==========================================
-// gRPC 服务接口
+// 4. gRPC 服务接口
 // ==========================================
 
 service RaftService {
-    // 内部节点交互
+    // --- 内部交互 ---
     rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse);
     rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
     
-    // 【新增】外部客户端接口
-    // 只有 Leader 能处理这个请求，Follower 应该返回 false
+    // --- 外部写接口 (写入 Raft Log) ---
+    // 客户端调用这个插入向量
     rpc Propose(ClientRequest) returns (ClientResponse);
+    
+    // --- 【新增】外部读接口 (直接查 HNSW 索引) ---
+    // 客户端调用这个进行搜索
+    rpc Search(SearchRequest) returns (SearchResponse);
 }

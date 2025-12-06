@@ -4,28 +4,28 @@
 #include <vector>
 #include <memory>
 #include <atomic>
-#include <condition_variable>
 #include <thread>
 #include <chrono>
 #include <tuple>
 #include <string> 
-#include <map> 
-#include <fstream> // 必须包含 fstream 进行文件读写
+#include <fstream>
     
 #include <grpcpp/grpcpp.h> 
 #include "raft.pb.h"
 #include "common/logger.h"
 #include "network/rpc_client.h" 
 
+// 【核心】引入 hnswlib
+#include "hnswlib/hnswlib.h"
+
 namespace raftkv {
 
 class RaftRpcServiceImpl;
 
-// 日志条目结构体
 struct LogEntry {
     uint64_t term;   
     uint64_t index;  
-    std::string data; 
+    std::string data; // 存放序列化后的 ClientRequest
 };
 
 enum RaftState {
@@ -48,9 +48,13 @@ public:
     void HandleAppendEntries(const raftpb::AppendEntriesRequest& req, 
                              raftpb::AppendEntriesResponse* resp);
 
-    // Client Interface
+    // 写接口: 插入向量 (Propose)
     std::tuple<uint64_t, uint64_t, bool> Propose(std::string data);
     
+    // 【新增】读接口: 搜索向量 (Search)
+    // 返回 pair<ID, Distance>
+    std::vector<std::pair<int64_t, float>> Search(const std::vector<float>& query_vec, int top_k);
+
     bool IsLeader();
 
 private:
@@ -62,57 +66,54 @@ private:
     void SendRequestVote(int target_id);
     void SendAppendEntries(int target_id);
     
-    // 核心函数：将已提交的日志应用到 KV 状态机
+    // 状态机应用: 解析 Protobuf 并写入 HNSW
     void ApplyLogs();
 
-    // 【新增】持久化相关函数
-    void Persist();    // 将 current_term, voted_for, logs 写入磁盘
-    void LoadState();  // 从磁盘恢复状态
+    void Persist();    // 暂时只持久化 Raft 元数据
+    void LoadState(); 
 
     std::chrono::milliseconds GetRandomizedElectionTimeout();
     uint64_t GetLastLogIndex();
     uint64_t GetLastLogTerm();
 
 private:
-    // --- 1. Node Metadata ---
     int id_; 
     int port_;
     std::vector<std::string> peers_; 
-    
-    // 【新增】持久化文件名 (例如 node_0.storage)
     std::string persistence_file_;
 
-    // --- 2. Network Components ---
     std::unique_ptr<grpc::Server> rpc_server_;
     std::unique_ptr<RaftRpcServiceImpl> rpc_service_;
     std::vector<std::unique_ptr<RaftRpcClient>> rpc_clients_;
 
-    // --- 3. Threading ---
     std::recursive_mutex mutex_;
     std::atomic<bool> running_;
     std::unique_ptr<std::thread> background_thread_;
 
-    // --- 4. Raft State (Persistent) ---
-    // 这三个变量需要被持久化
+    // Raft State
     uint64_t current_term_; 
     int voted_for_;         
     std::vector<LogEntry> logs_; 
 
-    // --- 5. Raft State (Volatile) ---
     RaftState state_;
     uint64_t commit_index_; 
     uint64_t last_applied_; 
 
-    // 内存数据库 (State Machine)
-    std::map<std::string, std::string> kv_store_;
+    // 【替换】HNSW 向量检索引擎
+    // 1. 空间 (L2 欧氏距离)
+    std::unique_ptr<hnswlib::L2Space> hnsw_space_;
+    // 2. 索引
+    std::unique_ptr<hnswlib::HierarchicalNSW<float>> hnsw_index_;
+    // 3. 配置参数
+    int dim_ = 128;            // 向量维度 (必须固定)
+    int max_elements_ = 10000; // 最大容量
 
-    // --- 6. Leader Volatile State ---
+    // Leader Volatile
     std::vector<uint64_t> next_index_;  
     std::vector<uint64_t> match_index_; 
 
     int vote_count_;
     
-    // --- 7. Time ---
     std::chrono::steady_clock::time_point last_election_time_;
     std::chrono::milliseconds election_timeout_;
     std::chrono::steady_clock::time_point last_heartbeat_time_;
